@@ -1,0 +1,3 @@
+ALTER TABLE rsvps ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1);
+ALTER TABLE rsvps ADD COLUMN last_request_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE rsvp_requests ADD COLUMN result_revision INTEGER NOT NULL DEFAULT 0;

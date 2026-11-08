@@ -1,0 +1,31 @@
+{
+  "name": "invitekit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.local.jsonc --ip 127.0.0.1 --port 8787 --persist-to .local-state",
+    "db:local": "wrangler d1 migrations apply invitekit-local --local --config wrangler.local.jsonc --persist-to .local-state",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check-syntax.mjs",
+    "audit:release": "node scripts/audit-release.mjs",
+    "build:check": "wrangler deploy --dry-run --config wrangler.jsonc --outdir .build-check",
+    "test:browser": "node scripts/run-browser-tests.mjs",
+    "test:guests": "node scripts/run-browser-tests.mjs --guest-desk"
+  },
+  "devDependencies": {
+    "@fontsource/cormorant-garamond": "5.3.0",
+    "gsap": "3.15.0",
+    "miniflare": "5.20261006.0-alpha",
+    "playwright": "1.65.0",
+    "wrangler": "4.148.0"
+  },
+  "overrides": {
+    "sharp": "0.35.5"
+  },
+  "version": "0.1.0",
+  "description": "Configurable bilingual wedding invitations and private guest RSVP management.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=24"
+  }
+}

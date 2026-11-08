@@ -1,0 +1,36 @@
+.animal-charms-layer{position:fixed;inset:0;z-index:1000;pointer-events:none;contain:layout style}
+.animal-charms-layer[hidden],.animal-charm[hidden]{display:none!important}
+.animal-charm{position:absolute;left:0;top:0;display:grid;place-items:center;box-sizing:border-box;width:72px;height:72px;margin:0;padding:3px;border:1px solid #19191930;border-radius:50%;background:#f5f3eff5;box-shadow:0 4px 14px #19191918;color:#191919;cursor:pointer;pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;will-change:transform}
+.animal-charm-photo{position:relative;display:block;width:100%;height:100%;overflow:hidden;border-radius:50%;pointer-events:none;background:#e6dfd3}
+.animal-charm-photo img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}
+/* Display-only crops: original household photo pixels are kept unchanged. */
+.animal-charm-photo:is(.portrait-golden,.portrait-longhair,.portrait-poodle) img{position:absolute;max-width:none;height:auto;border-radius:0;object-fit:initial}
+.portrait-longhair img{width:285%;left:-83.55%;top:-85%}
+.portrait-golden img{width:194%;left:-5.31%;top:-88.98%;filter:brightness(1.2)}
+.portrait-poodle img{width:246%;left:-78.58%;top:-80.37%}
+.animal-charm:focus-visible{outline:3px solid #6b5844;outline-offset:3px}
+.animal-charm.is-reacting{border-color:#6b5844;background:#ece1d4}
+.animal-charm.is-reacting .animal-charm-photo,.animal-charm-dock.is-reacting .animal-charm-photo{animation:charm-greeting 480ms ease-out}
+@keyframes charm-greeting{0%,100%{transform:rotate(0) scale(1)}35%{transform:rotate(-6deg) scale(1.05)}65%{transform:rotate(4deg) scale(.98)}}
+.animal-charms-layer.is-paused .animal-charm-photo,.animal-charms-controls.is-paused .animal-charm-photo{animation:none!important}
+.animal-charms-controls{width:100%;max-width:640px;color:inherit;font:inherit;text-align:left}
+.animal-charms-caption{margin:0 0 12px;font-size:14px;letter-spacing:.04em;line-height:1.7}
+.animal-charms-dock{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 18px}
+.animal-charms-controls .animal-charm-dock{display:flex;flex:0 1 auto;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-width:82px;min-height:100px;max-width:140px;padding:9px 12px;border:1px solid #19191930;border-radius:12px;background:#f5f3ef;line-height:1.4}
+.animal-charm-dock .animal-charm-photo{width:64px;height:64px}
+.animal-charm-dock-label{font-size:11px;text-align:center;overflow-wrap:anywhere}
+.animal-charms-controls .animal-charm-dock.is-reacting{border-color:#6b5844;background:#ece1d4}
+.animal-charms-toolbar{display:flex;flex-wrap:wrap;gap:8px}
+.animal-charms-controls button,.animal-charms-controls summary{min-height:44px;padding:8px 12px;border:1px solid #19191940;border-radius:3px;background:transparent;color:inherit;font:inherit;font-size:12px;cursor:pointer;touch-action:manipulation}
+.animal-charms-controls button[aria-pressed=true]{background:#e7e2da}
+.animal-charms-controls :is(button,summary,a):focus-visible{outline:2px solid #6b5844;outline-offset:3px}
+.animal-charms-status{min-height:1.8em;margin:10px 0;font-size:12px;line-height:1.8}
+.animal-charms-controls details{font-size:11px;line-height:1.8;overflow-wrap:anywhere}
+.animal-charms-controls summary{display:list-item;width:fit-content;min-height:44px;box-sizing:border-box;border:none;padding:6px 0}
+.animal-charms-controls details p{margin:8px 0}
+.animal-charms-controls a{color:inherit;text-decoration:underline;text-underline-offset:3px}
+@media(prefers-reduced-motion:reduce){.animal-charm,.animal-charm-photo,.animal-charm-dock{animation:none!important;transition:none!important}}
+.animal-charms-mount{padding:32px 6%;border-bottom:1px solid var(--line,#d7d5d0);display:flex;justify-content:center;color:var(--muted,#6a6965);background:var(--paper,#f5f3ef)}
+.animal-charms-note{font-size:11px;line-height:1.8;margin:0 0 16px}
+
+.animal-charms-status:empty{display:none}

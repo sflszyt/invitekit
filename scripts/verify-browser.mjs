@@ -1,0 +1,136 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { resolve, relative, isAbsolute } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { wedding } from '../public/content.js';
+const base=process.env.QA_BASE_URL, state=process.env.QA_STATE_DIR, runId=process.env.QA_RUN_ID;
+// Never connect to a preview database; only the owning launcher creates this guard.
+assert.ok(base&&state&&runId,'Use npm run test:browser; a dedicated disposable server is required.');
+const within=relative(resolve('.test-state'),resolve(state));
+assert.ok(within&&!within.startsWith('..')&&!isAbsolute(within),'State must be under .test-state');
+const manifest=JSON.parse(readFileSync(resolve(state,'test-run.json'),'utf8'));
+assert.deepEqual([manifest.id,manifest.url],[runId,base]);
+assert.equal(new URL(base).hostname,'127.0.0.1');assert.notEqual(new URL(base).port,'8787');
+const require=createRequire(import.meta.url);
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH ? {executablePath:process.env.CHROME_PATH} : {})});
+mkdirSync('artifacts',{recursive:true});
+const report={checks:[],browser:await browser.version(),isolated:true,runId,errors:[],external:[]};
+const passed=name=>report.checks.push({name,passed:true});
+const evidenceLabel=process.env.QA_LABEL||'invitekit';
+assert.match(evidenceLabel,/^[a-z0-9-]+$/);
+async function monitoredContext(options){const ctx=await browser.newContext(options);ctx.on('page',p=>{p.on('pageerror',e=>report.errors.push(e.message));p.on('request',r=>{if(!r.url().startsWith(base))report.external.push(r.url());});});return ctx;}
+function findDb(dir){for(const e of readdirSync(dir,{withFileTypes:true})){const p=resolve(dir,e.name);if(e.isDirectory()){const found=findDb(p);if(found)return found;}else if(p.endsWith('.sqlite'))return p;}}
+const db=new DatabaseSync(findDb(resolve(state,'persistence/d1')),{readOnly:true});
+const row=()=>db.prepare('SELECT * FROM rsvps').get();
+const context=await monitoredContext({viewport:{width:390,height:844},reducedMotion:'reduce'});
+const page=await context.newPage();
+async function load(p=page){await p.goto(base,{waitUntil:'networkidle'});await p.waitForFunction(()=>!document.querySelector('#rsvp-fields').disabled);}
+async function save(p=page){await p.locator('#submit-rsvp').click();await p.locator('#form-feedback').waitFor({state:'visible'});}
+async function counts(a,c,p=page){await p.locator('input[value=yes]').check();await p.locator('#adult-count').fill(String(a));await p.locator('#child-count').fill(String(c));}
+try{
+  await load();assert.equal(db.prepare('SELECT count(*) n FROM rsvps').get().n,0);
+  assert.ok(await page.locator('#hero-title').isVisible());assert.equal(await page.locator('.event-strip').getByText(wedding.venue).count(),1);
+  await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.activeElement.className),'skip-link');
+  await page.keyboard.press('Enter');assert.equal(await page.evaluate(()=>document.activeElement.id),'main');
+  assert.equal(await page.evaluate(()=>gsap.globalTimeline.getChildren().filter(x=>x.isActive()).length),0);
+  await page.locator('#submit-rsvp').focus();
+  const focus=await page.locator('#submit-rsvp').evaluate(e=>({outline:getComputedStyle(e).outlineColor,shadow:getComputedStyle(e).boxShadow}));
+  assert.equal(focus.outline,'rgb(25, 25, 25)');assert.match(focus.shadow,/245, 243, 239/);
+  passed('Immediate core information, keyboard skip link, visible dual contrast focus, reduced motion');
+  for(const width of [320,390,700,701,768,1024,1440,1920]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`overflow ${width}`);}
+  passed('No horizontal page overflow at 320, 390, 700, 701, 768, 1024, 1440 and 1920 pixels');
+  for(const img of await page.locator('[data-photo]').all()){await img.scrollIntoViewIfNeeded();await img.evaluate(async el=>{await el.decode();if(!el.naturalWidth||!el.currentSrc.includes('/assets/demo/'))throw new Error('Photograph failed to load');});}
+  assert.equal(await page.locator('[data-photo]').count(),3);passed('All three neutral demo illustrations decode locally');
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('[data-book-cover]').click();
+  assert.equal(await page.locator('[data-book-page]').getAttribute('aria-hidden'),'false');
+  assert.equal(await page.locator('[data-book-chinese]').getAttribute('aria-hidden'),'false');
+  await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'artifacts/demo-desktop.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  // matchMedia's change event runs after the viewport operation completes.
+  await page.waitForFunction(()=>document.querySelector('[data-book-chinese]').getAttribute('aria-hidden')==='true');
+  assert.equal(await page.locator('[data-book-chinese]').getAttribute('aria-hidden'),'true');
+  await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'artifacts/demo-mobile.png',fullPage:true});
+  await page.locator('[data-book-language]').click();
+  assert.equal(await page.locator('[data-book-chinese]').getAttribute('aria-hidden'),'false');
+  assert.equal(await page.locator('[data-book-page]').getAttribute('aria-hidden'),'true');
+  await page.locator('.book-stage').screenshot({path:'artifacts/demo-book-chinese.png'});
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('[data-invitation-book]').getAttribute('data-open'),'false');
+  passed('Invitation book opens, switches accessible mobile pages and closes from the keyboard');
+  const custom=await monitoredContext({viewport:{width:390,height:844},reducedMotion:'reduce'}),customPage=await custom.newPage();
+  const customContent={...wedding,names:['Morgan','Casey'],groomChinese:'示例甲',brideChinese:'示例乙',date:'2031-12-20',city:'示例新城',cityEnglish:'Demo City',venue:'示例礼堂',venueTraditional:'示例禮堂',venueEnglish:'Demo Hall',ceremonyTime:'10:15',streetAddress:'示例路 10 号',streetAddressEnglish:'10 Example Road'};
+  await customPage.route('**/content.js',r=>r.fulfill({contentType:'text/javascript',body:'export const wedding = '+JSON.stringify(customContent)+';'}));
+  await customPage.goto(base,{waitUntil:'networkidle'});
+  assert.match(await customPage.title(),/Morgan.*Casey/);
+  assert.match(await customPage.locator('#hero-title').innerText(),/Morgan[\s\S]*Casey/);
+  assert.match(await customPage.locator('.hero-side-note').innerText(),/DEMO CITY/i);
+  assert.match(await customPage.locator('.book-hint').innerText(),/Morgan.*Casey/i);
+  assert.match(await customPage.locator('[data-book-cover]').getAttribute('aria-label'),/Morgan.*Casey/);
+  for(const el of await customPage.locator('[data-date-short]').all())assert.equal(await el.innerText(),'20.12.2031');
+  for(const el of await customPage.locator('[data-venue]').all())assert.equal(await el.innerText(),customContent.venue);
+  assert.doesNotMatch(await customPage.locator('body').innerText(),/Alex|Taylor|2030|Garden Venue/);
+  assert.equal(await customPage.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await custom.close();passed('Changing configuration updates all visible names, date, venue, city and accessible cover text');
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('#submit-rsvp').click();assert.equal(await page.evaluate(()=>document.activeElement.id),'guest-name');assert.ok(await page.locator('#name-error').isVisible());
+  await page.locator('#guest-name').fill('Browser test fixture');await counts(2,1);
+  let requests=0;page.on('request',r=>{if(r.url().endsWith('/api/rsvp'))requests++;});
+  await page.locator('#submit-rsvp').evaluate(e=>{e.click();e.click();});await page.locator('#form-feedback').waitFor({state:'visible'});
+  assert.equal(requests,1);assert.equal(row().adult_count,2);assert.equal(row().child_count,1);assert.equal(row().party_size,3);
+  assert.match(await page.locator('#form-feedback').innerText(),/已保存到本机数据库/);
+  passed('Inline validation and duplicate clicks; adults 2 plus children 1 persist as total 3 in real D1');
+  const admin=await context.newPage();const res=await admin.goto(base+'/admin',{waitUntil:'networkidle'});
+  assert.equal(res.status(),200);await admin.locator('#admin-data').waitFor({state:'visible'});
+  await admin.locator('#legacy-section').waitFor({state:'visible'});await admin.locator('#legacy-section summary').click();
+  assert.equal(await admin.locator('#adults-total').innerText(),'2');assert.equal(await admin.locator('#children-total').innerText(),'1');assert.equal(await admin.locator('#guests-total').innerText(),'3');
+  const csv=await context.request.get(base+'/api/admin/export');assert.equal(csv.status(),200);assert.match(await csv.text(),/Browser test fixture/);
+  assert.equal(await admin.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  passed('Actual admin route serves 200 without redirect loop; real totals, guarded CSV endpoint and mobile table');
+  await page.reload({waitUntil:'networkidle'});await page.waitForFunction(()=>!document.querySelector('#rsvp-fields').disabled);
+  assert.equal(await page.locator('#adult-count').inputValue(),'2');assert.equal(await page.locator('#child-count').inputValue(),'1');
+  const other=await context.newPage();await load(other);await counts(3,1,other);await save(other);
+  await counts(1,0);await save();assert.ok(await page.locator('#reload-reply').isVisible());assert.match(await page.locator('#form-feedback').innerText(),/另一页面更新/);assert.equal(row().party_size,4);
+  await page.locator('#reload-reply').click();await page.waitForFunction(()=>!document.querySelector('#rsvp-fields').disabled);assert.equal(await page.locator('#adult-count').inputValue(),'3');
+  await page.locator('input[value=no]').check();await save();assert.equal(row().party_size,0);assert.equal(row().child_count,0);assert.ok(await page.locator('#party-field').isHidden());
+  passed('Reload prefills own reply; two-tab stale edit shows conflict, reload gets current reply, decline saves zero');
+  let lostId;await page.route('**/api/rsvp',async route=>{lostId=route.request().headers()['idempotency-key'];await route.fetch();await route.abort();});
+  await counts(2,0);await save();assert.match(await page.locator('#form-feedback').innerText(),/未能确认回复已保存/);const revision=row().revision;
+  await page.unroute('**/api/rsvp');let retryId;await page.route('**/api/rsvp',async route=>{retryId=route.request().headers()['idempotency-key'];await route.continue();});
+  await save();assert.equal(lostId,retryId);assert.equal(row().revision,revision);assert.match(await page.locator('#form-feedback').innerText(),/载入最新安排/);
+  await page.unroute('**/api/rsvp');passed('Response loss preserves retry key; retry confirms prior commit, refreshes state and creates no duplicate');
+  await page.route('**/api/rsvp',r=>r.abort());await counts(1,1);await save();assert.match(await page.locator('#form-feedback').innerText(),/未能确认/);assert.equal(await page.locator('#child-count').inputValue(),'1');
+  passed('Network failure preserves input and does not claim success');
+  const unavailable=await monitoredContext({reducedMotion:'reduce'});const off=await unavailable.newPage();await off.route('**/api/context',r=>r.fulfill({status:503,contentType:'application/json',body:'{"error":"unavailable"}'}));await off.goto(base,{waitUntil:'networkidle'});assert.ok(await off.locator('#guest-name').isDisabled());assert.ok(await off.locator('#retry-connection').isVisible());await unavailable.close();
+  const nojs=await monitoredContext({javaScriptEnabled:false,viewport:{width:390,height:844}});const plain=await nojs.newPage();await plain.goto(base);assert.ok(await plain.locator('#hero-title').isVisible());assert.ok(await plain.locator('#guest-name').isDisabled());assert.ok(await plain.locator('[data-book-page]').isVisible());assert.ok(await plain.locator('[data-book-chinese]').isVisible());assert.equal(await plain.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await nojs.close();passed('Unavailable backend and JavaScript-disabled page fail honestly and keep both invitation pages readable');
+  const motion=await monitoredContext({reducedMotion:'no-preference'});const mp=await motion.newPage();await mp.goto(base,{waitUntil:'networkidle'});await mp.emulateMedia({reducedMotion:'reduce'});await mp.waitForFunction(()=>gsap.globalTimeline.getChildren().filter(x=>x.isActive()).length===0,{},{timeout:1000});await motion.close();passed('Changing reduced-motion preference stops active animations');
+  assert.equal(await page.locator('#music-toggle').count(),0);
+  // A generated test tone is intercepted in memory only; no soundtrack is shipped.
+  const sampleRate=8000,samples=sampleRate*2,wav=Buffer.alloc(44+samples*2);
+  wav.write('RIFF');wav.writeUInt32LE(36+samples*2,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(sampleRate,24);wav.writeUInt32LE(sampleRate*2,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(samples*2,40);
+  for(let i=0;i<samples;i++)wav.writeInt16LE(Math.round(Math.sin(i*2*Math.PI*220/sampleRate)*100),44+i*2);
+  const musicConfig='export const wedding = '+JSON.stringify({...wedding,music:{src:'/assets/audio/test-tone.wav',title:'Test tone',credit:'Generated test fixture',license:'Synthetic test only'}})+';';
+  const music=await monitoredContext({reducedMotion:'reduce'});let audioRequests=0;
+  const mus=await music.newPage();await mus.route('**/content.js',r=>r.fulfill({contentType:'text/javascript',body:musicConfig}));
+  await mus.route('**/assets/audio/test-tone.wav',r=>{audioRequests++;return r.fulfill({contentType:'audio/wav',body:wav});});
+  await mus.goto(base,{waitUntil:'networkidle'});assert.equal(audioRequests,0);assert.equal(await mus.locator('#music-toggle').getAttribute('aria-pressed'),'false');
+  await mus.locator('#music-toggle').focus();await mus.keyboard.press('Enter');await mus.waitForFunction(()=>document.querySelector('#music-toggle').getAttribute('aria-pressed')==='true');
+  assert.ok(audioRequests>0);assert.match(await mus.locator('#music-status').innerText(),/正在播放/);
+  await mus.keyboard.press('Enter');assert.equal(await mus.locator('#music-toggle').getAttribute('aria-pressed'),'false');
+  await mus.reload({waitUntil:'networkidle'});assert.equal(await mus.locator('#music-toggle').getAttribute('aria-pressed'),'false');
+  await mus.unroute('**/assets/audio/test-tone.wav');await mus.route('**/assets/audio/test-tone.wav',r=>r.fulfill({status:404,body:'missing test fixture'}));
+  await mus.locator('#music-toggle').click();await mus.waitForFunction(()=>/无法播放|未能播放/.test(document.querySelector('#music-status').textContent));assert.equal(await mus.locator('#music-toggle').getAttribute('aria-pressed'),'false');await music.close();
+  passed('Synthetic tone verifies no autoplay, keyboard play/pause, reload off and missing-media error');
+  const silent=await monitoredContext();const sp=await silent.newPage();let silentMedia=0;
+  sp.on('request',r=>{if(/\.(mp3|wav)(\?|$)/.test(r.url()))silentMedia++;});
+  await sp.route('**/content.js',r=>r.fulfill({contentType:'text/javascript',body:'export const wedding = '+JSON.stringify({...wedding,music:null})+';'}));
+  await sp.goto(base,{waitUntil:'networkidle'});assert.equal(await sp.locator('#music-toggle').count(),0);assert.equal(silentMedia,0);await silent.close();
+  passed('Optional music is silent by default; synthetic audio exercises playback, pause and failures');
+  await page.unroute('**/api/rsvp');await page.setViewportSize({width:1280,height:900});
+  await page.evaluate(()=>{for(const el of document.querySelectorAll('p,label,legend,button,input,dd,dt,nav a'))el.style.fontSize=(parseFloat(getComputedStyle(el).fontSize)*2)+'px';});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);passed('200 percent text enlargement smoke check at desktop width without page overflow');
+  assert.deepEqual(report.errors,[]);assert.deepEqual(report.external,[]);passed('No page JavaScript errors or external requests');
+}finally{db.close();await browser.close();writeFileSync(`artifacts/${evidenceLabel}-browser-verification.json`,JSON.stringify(report,null,2));}
+console.log(JSON.stringify(report,null,2));

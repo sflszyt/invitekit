@@ -1,0 +1,3 @@
+# Local development needs no secrets. Production uses Wrangler secrets.
+# Generate your own invitation-link secret with at least 32 random characters.
+# INVITATION_LINK_SECRET=
